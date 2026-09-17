@@ -3,7 +3,6 @@ import math
 import numpy as np
 import torch
 import warnings
-from .event_handling import combine_event_functions
 
 
 _all_callback_names = ['callback_step', 'callback_accept_step', 'callback_reject_step']
@@ -134,6 +133,19 @@ def _flat_to_shape(tensor, length, shapes):
     return tuple(tensor_list)
 
 
+class _CombinedEventFunc(torch.nn.Module):
+    def __init__(self, event_fn, t0, y0):
+        super(_CombinedEventFunc, self).__init__()
+        self.base_func = event_fn
+        self.initial_signs = torch.sign(self.base_func(t0, y0))
+
+    def forward(self, t, y):
+        return torch.min(self.base_func(t,y) * self.initial_signs)
+
+    def update_signs(self,t,y):
+        self.initial_signs = torch.sign(self.base_func(t,y))
+
+
 class _TupleFunc(torch.nn.Module):
     def __init__(self, base_func, shapes):
         super(_TupleFunc, self).__init__()
@@ -196,7 +208,6 @@ class _PerturbFunc(torch.nn.Module):
             pass
         return self.base_func(t, y)
 
-
 def _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS):
 
     if event_fn is not None:
@@ -204,7 +215,7 @@ def _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS):
             raise ValueError(f"We require len(t) == 2 when in event handling mode, but got len(t)={len(t)}.")
 
         # Combine event functions if the output is multivariate.
-        event_fn = combine_event_functions(event_fn, t[0], y0)
+        event_fn = _CombinedEventFunc(event_fn, t[0], y0)
 
     # Keep reference to original func as passed in
     original_func = func
@@ -277,8 +288,6 @@ def _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS):
 
         # Ensure time values are un-negated when calling functions.
         func = _ReverseFunc(func, mul=-1.0)
-        if event_fn is not None:
-            event_fn = _ReverseFunc(event_fn)
 
         # For fixed step solvers.
         try:

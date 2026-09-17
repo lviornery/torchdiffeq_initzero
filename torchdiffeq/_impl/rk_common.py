@@ -259,6 +259,7 @@ class RKAdaptiveStepsizeODESolver(AdaptiveStepsizeEventODESolver):
             assert n_steps < self.max_num_steps, 'max_num_steps exceeded ({}>={})'.format(n_steps, self.max_num_steps)
             self.rk_state = self._adaptive_step(self.rk_state)
             n_steps += 1
+          event_fn.update_signs(self.rk_state.t1, self.rk_state.y1)
           sign0 = torch.sign(event_fn(self.rk_state.t1, self.rk_state.y1))
           
         while sign0 == torch.sign(event_fn(self.rk_state.t1, self.rk_state.y1)):
