@@ -1,7 +1,6 @@
 import bisect
 import collections
 import torch
-from .event_handling import find_event
 from .interp import _interp_evaluate, _interp_fit
 from .misc import (_compute_error_ratio,
                    _select_initial_step,
