@@ -141,10 +141,10 @@ class _CombinedEventModule(torch.nn.Module):
     def forward(self, t_old, t, y_old, y):
         initial_signs = self.base_func(t_old,y_old)
         initial_signs = torch.sign(initial_signs)
-        nonzero_indices = initial_signs.nonzero(as_tuple=True)
-        return torch.any(
-            initial_signs.not_equal(torch.sign(self.base_func(t,y)))[nonzero_indices]
-        )
+        return torch.any(torch.bitwise_and(
+            (initial_signs.not_equal(0)),
+            (initial_signs.not_equal(torch.sign(self.base_func(t,y))))
+        ))
     
     def find_event(self,interp_fn, t0, t1, y0, tol):
         with torch.no_grad():

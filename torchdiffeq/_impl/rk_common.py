@@ -250,13 +250,16 @@ class RKAdaptiveStepsizeODESolver(AdaptiveStepsizeEventODESolver):
 
     def _advance_until_event(self, event_module):
         """Returns t, state(t) such that event_fn(t, state(t)) == 0."""
-        n_steps = 0
-        while not event_module(self.rk_state.t0, self.rk_state.t1, self.rk_state.y0, self.rk_state.y1):
-            assert n_steps < self.max_num_steps, 'max_num_steps exceeded ({}>={})'.format(n_steps, self.max_num_steps)
+        for n_steps in range(self.max_num_steps):
+            prev_y = self.rk_state.y1
             self.rk_state = self._adaptive_step(self.rk_state)
-            n_steps += 1
+            if event_module(self.rk_state.t0, self.rk_state.t1, prev_y, self.rk_state.y1):
+                break
+        else:
+            raise ValueError('max_num_steps exceeded ({}>={})'.format(n_steps, self.max_num_steps))
+
         interp_fn = lambda t: _interp_evaluate(self.rk_state.interp_coeff, self.rk_state.t0, self.rk_state.t1, t)
-        return event_module.find_event(interp_fn, self.rk_state.t0, self.rk_state.t1, self.rk_state.y0,  self.atol)
+        return event_module.find_event(interp_fn, self.rk_state.t0, self.rk_state.t1, prev_y,  self.atol)
 
     def _adaptive_step(self, rk_state):
         """Take an adaptive Runge-Kutta step to integrate the ODE."""
