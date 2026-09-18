@@ -197,16 +197,16 @@ def odeint_adjoint(func, y0, t, *, rtol=1e-7, atol=1e-9, method=None, options=No
                           "excluded from the adjoint pass, and will not appear as a tensor in the adjoint norm.")
 
     # Convert to flattened state.
-    shapes, func, y0, t, rtol, atol, method, options, event_fn, decreasing_time = _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS)
+    shapes, func, y0, t, rtol, atol, method, options, event_module, decreasing_time = _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS)
 
     # Handle the adjoint norm function.
     state_norm = options["norm"]
     handle_adjoint_norm_(adjoint_options, shapes, state_norm)
 
-    ans = OdeintAdjointMethod.apply(shapes, func, y0, t, rtol, atol, method, options, event_fn, adjoint_rtol, adjoint_atol,
+    ans = OdeintAdjointMethod.apply(shapes, func, y0, t, rtol, atol, method, options, event_module, adjoint_rtol, adjoint_atol,
                                     adjoint_method, adjoint_options, t.requires_grad, *adjoint_params)
 
-    if event_fn is None:
+    if event_module is None:
         solution = ans
     else:
         event_t, solution = ans
@@ -217,7 +217,7 @@ def odeint_adjoint(func, y0, t, *, rtol=1e-7, atol=1e-9, method=None, options=No
     if shapes is not None:
         solution = _flat_to_shape(solution, (len(t),), shapes)
 
-    if event_fn is None:
+    if event_module is None:
         return solution
     else:
         return event_t, solution

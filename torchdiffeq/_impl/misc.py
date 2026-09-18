@@ -133,18 +133,34 @@ def _flat_to_shape(tensor, length, shapes):
     return tuple(tensor_list)
 
 
-class _CombinedEventFunc(torch.nn.Module):
+class _CombinedEventModule(torch.nn.Module):
     def __init__(self, event_fn, t0, y0):
-        super(_CombinedEventFunc, self).__init__()
+        super(_CombinedEventModule, self).__init__()
         self.base_func = event_fn
-        self.initial_signs = torch.sign(self.base_func(t0, y0))
 
-    def forward(self, t, y):
-        return torch.min(self.base_func(t,y) * self.initial_signs)
+    def forward(self, t_old, t, y_old, y):
+        initial_signs = self.base_func(t_old,y_old)
+        initial_signs = torch.sign(initial_signs)
+        nonzero_indices = initial_signs.nonzero(as_tuple=True)
+        return torch.any(
+            initial_signs.not_equal(torch.sign(self.base_func(t,y)))[nonzero_indices]
+        )
+    
+    def find_event(self,interp_fn, t0, t1, y0, tol):
+        with torch.no_grad():
 
-    def update_signs(self,t,y):
-        self.initial_signs = torch.sign(self.base_func(t,y))
+            # Num iterations for the secant method until tolerance is within target.
+            nitrs = torch.ceil(torch.log((t1 - t0) / tol) / math.log(2.0))
 
+            for _ in range(nitrs.long()):
+                t_mid = (t1 + t0) / 2.0
+                y_mid = interp_fn(t_mid)
+                sign_change_mid = self(t0, t_mid, y0, y_mid)
+                t0 = torch.where(sign_change_mid, t0, t_mid)
+                t1 = torch.where(sign_change_mid, t_mid, t1)
+            event_t = (t0 + t1) / 2.0
+
+        return event_t, interp_fn(event_t)
 
 class _TupleFunc(torch.nn.Module):
     def __init__(self, base_func, shapes):
@@ -210,13 +226,6 @@ class _PerturbFunc(torch.nn.Module):
 
 def _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS):
 
-    if event_fn is not None:
-        if len(t) != 2:
-            raise ValueError(f"We require len(t) == 2 when in event handling mode, but got len(t)={len(t)}.")
-
-        # Combine event functions if the output is multivariate.
-        event_fn = _CombinedEventFunc(event_fn, t[0], y0)
-
     # Keep reference to original func as passed in
     original_func = func
 
@@ -230,8 +239,22 @@ def _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS):
         atol = _tuple_tol('atol', atol, shapes)
         y0 = torch.cat([y0_.reshape(-1) for y0_ in y0])
         func = _TupleFunc(func, shapes)
-        if event_fn is not None:
-            event_fn = _TupleInputOnlyFunc(event_fn, shapes)
+
+    if event_fn is not None:
+        if len(t) != 2:
+            raise ValueError(f"We require len(t) == 2 when in event handling mode, but got len(t)={len(t)}.")
+
+        # Create event module
+        if isinstance(event_fn,_CombinedEventModule):
+            event_module = event_fn
+        else:
+            #convert to tuple function
+            if is_tuple:
+                event_fn = _TupleInputOnlyFunc(event_fn, shapes)
+
+            event_module = _CombinedEventModule(event_fn, t[0], y0)
+    else:
+        event_module = None
 
     # Normalise method and options
     if options is None:
@@ -351,7 +374,7 @@ def _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS):
     if len(invalid_callbacks) > 0:
         warnings.warn("Solver '{}' does not support callbacks {}".format(method, invalid_callbacks))
 
-    return shapes, func, y0, t, rtol, atol, method, options, event_fn, t_is_reversed
+    return shapes, func, y0, t, rtol, atol, method, options, event_module, t_is_reversed
 
 
 class _StitchGradient(torch.autograd.Function):

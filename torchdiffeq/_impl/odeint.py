@@ -87,14 +87,14 @@ def odeint(func, y0, t, *, rtol=1e-7, atol=1e-9, method=None, options=None, even
         ValueError: if an invalid `method` is provided.
     """
 
-    shapes, func, y0, t, rtol, atol, method, options, event_fn, t_is_reversed = _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS)
+    shapes, func, y0, t, rtol, atol, method, options, event_module, t_is_reversed = _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS)
 
     solver = SOLVERS[method](func=func, y0=y0, rtol=rtol, atol=atol, **options)
 
-    if event_fn is None:
+    if event_module is None:
         solution = solver.integrate(t)
     else:
-        event_t, solution = solver.integrate_until_event(t[0], event_fn)
+        event_t, solution = solver.integrate_until_event(t[0], event_module)
         event_t = event_t.to(t)
         if t_is_reversed:
             event_t = -event_t
@@ -102,7 +102,7 @@ def odeint(func, y0, t, *, rtol=1e-7, atol=1e-9, method=None, options=None, even
     if shapes is not None:
         solution = _flat_to_shape(solution, (len(t),), shapes)
 
-    if event_fn is None:
+    if event_module is None:
         return solution
     else:
         return event_t, solution
@@ -168,7 +168,7 @@ def odeint_event(func, y0, t0, *, event_fn, reverse_time=False, odeint_interface
     event_t, solution = odeint_interface(func, y0, t, event_fn=event_fn, **kwargs)
 
     # Dummy values for rtol, atol, method, and options.
-    shapes, _func, _, t, _, _, _, _, event_fn, _ = _check_inputs(func, y0, t, 0.0, 0.0, None, None, event_fn, SOLVERS)
+    shapes, _func, _, t, _, _, _, _, event_module, _ = _check_inputs(func, y0, t, 0.0, 0.0, None, None, event_fn, SOLVERS)
 
     if shapes is not None:
         state_t = torch.cat([s[-1].reshape(-1) for s in solution])
@@ -179,7 +179,7 @@ def odeint_event(func, y0, t0, *, event_fn, reverse_time=False, odeint_interface
     if reverse_time:
         event_t = -event_t
 
-    event_t, state_t = ImplicitFnGradientRerouting.apply(_func, event_fn, event_t, state_t)
+    event_t, state_t = ImplicitFnGradientRerouting.apply(_func, event_module, event_t, state_t)
 
     # Return the user expected time value.
     if reverse_time:
@@ -197,17 +197,17 @@ def odeint_event(func, y0, t0, *, event_fn, reverse_time=False, odeint_interface
 class ImplicitFnGradientRerouting(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, func, event_fn, event_t, state_t):
-        """ event_t is the solution to event_fn """
+    def forward(ctx, func, event_module, event_t, state_t):
+        """ event_t is the solution to event_module """
         ctx.func = func
-        ctx.event_fn = event_fn
+        ctx.event_module = event_module
         ctx.save_for_backward(event_t, state_t)
         return event_t.detach(), state_t.detach()
 
     @staticmethod
     def backward(ctx, grad_t, grad_state):
         func = ctx.func
-        event_fn = ctx.event_fn
+        event_module = ctx.event_module
         event_t, state_t = ctx.saved_tensors
 
         event_t = event_t.detach().clone().requires_grad_(True)
@@ -216,9 +216,9 @@ class ImplicitFnGradientRerouting(torch.autograd.Function):
         f_val = func(event_t, state_t)
 
         with torch.enable_grad():
-            c, (par_dt, dstate) = vjp(event_fn, (event_t, state_t))
+            c, (par_dt, dstate) = vjp(event_module, (event_t, state_t))
 
-        # Total derivative of event_fn wrt t evaluated at event_t.
+        # Total derivative of event_module wrt t evaluated at event_t.
         dcdt = par_dt + torch.sum(dstate * f_val)
 
         # Add the gradient from final state to final time value as if a regular odeint was called.
