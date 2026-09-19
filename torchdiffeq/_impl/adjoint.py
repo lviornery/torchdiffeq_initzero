@@ -153,7 +153,7 @@ class OdeintAdjointMethod(torch.autograd.Function):
         return (None, None, adj_y, time_vjps, None, None, None, None, None, None, None, None, None, None, *adj_params)
 
 
-def odeint_adjoint(func, y0, t, *, rtol=1e-7, atol=1e-9, method=None, options=None, event_fn=None,
+def odeint_adjoint(func, y0, t, *, rtol=1e-7, atol=1e-9, method=None, options=None, event_fn=None, return_event_signs=False,
                    adjoint_rtol=None, adjoint_atol=None, adjoint_method=None, adjoint_options=None, adjoint_params=None):
 
     # We need this in order to access the variables inside this module,
@@ -219,6 +219,9 @@ def odeint_adjoint(func, y0, t, *, rtol=1e-7, atol=1e-9, method=None, options=No
 
     if event_module is None:
         return solution
+    elif return_event_signs:
+        event_signs = event_module.initial_signs.detach()
+        return event_t, solution, event_signs
     else:
         return event_t, solution
 

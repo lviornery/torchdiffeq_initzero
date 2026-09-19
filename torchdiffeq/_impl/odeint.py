@@ -46,7 +46,7 @@ SOLVERS = {
 }
 
 
-def odeint(func, y0, t, *, rtol=1e-7, atol=1e-9, method=None, options=None, event_fn=None):
+def odeint(func, y0, t, *, rtol=1e-7, atol=1e-9, method=None, options=None, event_fn=None, return_event_signs=False):
     """Integrate a system of ordinary differential equations.
 
     Solves the initial value problem for a non-stiff system of first order ODEs:
@@ -104,6 +104,9 @@ def odeint(func, y0, t, *, rtol=1e-7, atol=1e-9, method=None, options=None, even
 
     if event_module is None:
         return solution
+    elif return_event_signs:
+        event_signs = event_module.initial_signs.detach()
+        return event_t, solution, event_signs
     else:
         return event_t, solution
 
@@ -165,7 +168,7 @@ def odeint_event(func, y0, t0, *, event_fn, reverse_time=False, odeint_interface
     else:
         t = torch.cat([t0.reshape(-1), t0.reshape(-1).detach() + 1.0])
 
-    event_t, solution = odeint_interface(func, y0, t, event_fn=event_fn, **kwargs)
+    event_t, solution, event_signs = odeint_interface(func, y0, t, event_fn=event_fn, return_event_signs=True, **kwargs)
 
     # Dummy values for rtol, atol, method, and options.
     shapes, _func, _, t, _, _, _, _, event_module, _ = _check_inputs(func, y0, t, 0.0, 0.0, None, None, event_fn, SOLVERS)
@@ -178,6 +181,8 @@ def odeint_event(func, y0, t0, *, event_fn, reverse_time=False, odeint_interface
     # Event_fn takes in negated time value if reverse_time is True.
     if reverse_time:
         event_t = -event_t
+
+    event_module.set_signs(event_signs)
 
     event_t, state_t = ImplicitFnGradientRerouting.apply(_func, event_module, event_t, state_t)
 
